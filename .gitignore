@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# relatórios gerados a cada análise (podem conter caminhos e hashes de arquivos pessoais)
+reports/
+
+# downloads parciais e pastas temporárias do download pelo contêiner
+*.part
+.safecheck_dl_*/
+
+# ferramentas e editores
+.claude/
+.vscode/
+.idea/
+.DS_Store
+
+# prévias geradas pelo tools/make_icon.py
+assets/_*.png
