@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import prereqs
 import settings
 import urllib.error
 import urllib.parse
@@ -1051,6 +1052,8 @@ def main():
                     help="pasta para salvar os relatórios (padrão: a pasta de dados do usuário, fora do repositório)")
     ap.add_argument("--open", action="store_true", help="abre o relatório HTML no navegador ao terminar, sem perguntar")
     args = ap.parse_args()
+    if not prereqs.guided_terminal():
+        return 1
     url = clean_input(args.url or input("Cole o link ou o caminho do arquivo MP4: "))
     print()
     if sys.stdout.isatty():  # linha única que se atualiza durante o download
@@ -1068,4 +1071,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (KeyboardInterrupt, EOFError):  # Ctrl+C / Ctrl+D é o jeito normal de sair: sem traceback
+        print("\nCancelado.")
+        sys.exit(130)

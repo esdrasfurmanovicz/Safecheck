@@ -34,6 +34,7 @@
 **Requirements**
 
 - **Python 3.11 or newer.** Standard library only, no `pip install`. The window uses Tkinter, which ships with Python on Windows and macOS (on Linux: `python3-tk`).
+- **Guided setup.** On startup the program checks what is missing (Tkinter, Docker stopped or without permission), lists it and asks whether it may install. If you decline, it exits. Works in the terminal and in the window (on Linux it asks for the administrator password).
 - **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**, open and running. It is the sandbox that covers every type and every test. Alternative for MP4 and MOV: Windows Sandbox (Windows Pro or Enterprise).
 - Optional: Microsoft Defender on Windows (second antivirus engine) and a free [VirusTotal](https://www.virustotal.com/) key.
 - Tested on **Windows 11 with Docker Desktop**. Linux and macOS should work with Docker but have not been tested.

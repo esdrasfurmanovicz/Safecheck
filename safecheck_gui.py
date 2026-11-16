@@ -6,10 +6,13 @@ import subprocess
 import sys
 import threading
 import time
-import tkinter as tk
+import prereqs
+
+prereqs.ensure_tkinter()  # se o Tkinter faltar, oferece instalar antes de importá-lo
+import tkinter as tk  # noqa: E402
 import webbrowser
-from tkinter import filedialog, messagebox, ttk
-from tkinter import font as tkfont
+from tkinter import filedialog, messagebox, ttk  # noqa: E402
+from tkinter import font as tkfont  # noqa: E402
 
 import downloader
 import safecheck as sc
@@ -159,6 +162,79 @@ class App(tk.Tk):
         self.bind("<Control-o>", lambda e: self.choose_file())
         self.after(100, self.poll)
         self.after(180, self.tick)
+        self.after(300, self.check_prereqs)
+
+    def check_prereqs(self):
+        """Confere em segundo plano o que falta no computador (Docker) e, se faltar, pergunta se deve instalar."""
+        result = []
+        threading.Thread(target=lambda: result.append(prereqs.find_pending()), daemon=True).start()
+
+        def wait():
+            if not result:
+                self.after(150, wait)
+            elif result[0]:
+                self.offer_install(result[0])
+        self.after(150, wait)
+
+    def offer_install(self, pending):
+        auto = [p for p in pending if not p["manual"] and p["cmds"]]
+        texto = "Antes de começar, faltam algumas coisas neste computador:\n\n" + prereqs.describe(pending)
+        if not auto:
+            messagebox.showinfo("safecheck", texto + "\n\nNão consigo instalar isso sozinho neste sistema. "
+                                "Instale manualmente e abra o programa de novo.", parent=self)
+            self.destroy()
+            return
+        texto += "\n\nPosso instalar agora?"
+        if any(p["admin"] for p in auto) and sys.platform.startswith("linux"):
+            texto += " O sistema vai pedir sua senha de administrador."
+        if not messagebox.askyesno("safecheck: instalação necessária", texto, icon="question", parent=self):
+            self.destroy()  # sem as dependências o programa não funciona: sai
+            return
+        self.run_install(pending, auto)
+
+    def run_install(self, pending, auto):
+        win = tk.Toplevel(self)
+        win.title("Instalando o que falta")
+        win.transient(self)
+        win.protocol("WM_DELETE_WINDOW", lambda: None)  # não fecha no meio da instalação
+        box = tk.Text(win, width=90, height=18, bg=WHITE, fg=INK, font=("Consolas" if sys.platform == "win32" else "monospace", 9))
+        box.pack(fill="both", expand=True, padx=8, pady=8)
+        lines, outcome = queue.Queue(), []
+
+        def log(t):
+            lines.put(t)
+
+        def work():
+            outcome.append(prereqs.install(auto, log=log, graphical=True))
+
+        threading.Thread(target=work, daemon=True).start()
+
+        def pump():
+            while not lines.empty():
+                box.insert("end", lines.get() + "\n")
+                box.see("end")
+            if not outcome:
+                win.after(120, pump)
+                return
+            win.destroy()
+            self.after_install(pending, outcome[0][1])
+        pump()
+
+    def after_install(self, pending, failed):
+        if failed:
+            messagebox.showerror("safecheck", "Não consegui instalar: " + ", ".join(p["label"] for p in failed) +
+                                 ".\nInstale manualmente e abra o programa de novo.", parent=self)
+            self.destroy()
+            return
+        left = prereqs.find_pending()
+        if left:
+            relogin = any(p["relogin"] for p in pending)
+            messagebox.showinfo("safecheck", ("Instalado. Falta só aplicar a mudança de grupo: saia da sessão e entre de novo "
+                                              "(ou reinicie) e abra o programa outra vez.") if relogin else
+                                "O que foi instalado ainda não está pronto:\n\n" + prereqs.describe(left), parent=self)
+            self.destroy()
+            return
+        messagebox.showinfo("safecheck", "Tudo pronto. Pode usar o programa.", parent=self)
 
     def apply_icon(self):
         """Ícone da barra de título e da barra de tarefas (e dos diálogos). Se os arquivos faltarem, segue sem ícone."""
