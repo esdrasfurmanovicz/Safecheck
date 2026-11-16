@@ -1047,7 +1047,8 @@ def open_in_browser(path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("url", nargs="?", help="link do MP4 ou caminho de um .mp4 já baixado (se omitido, será perguntado)")
-    ap.add_argument("--reports", default=os.path.join(HERE, "reports"), help="pasta para salvar o relatório JSON")
+    ap.add_argument("--reports", default=settings.reports_dir(),
+                    help="pasta para salvar os relatórios (padrão: a pasta de dados do usuário, fora do repositório)")
     ap.add_argument("--open", action="store_true", help="abre o relatório HTML no navegador ao terminar, sem perguntar")
     args = ap.parse_args()
     url = clean_input(args.url or input("Cole o link ou o caminho do arquivo MP4: "))

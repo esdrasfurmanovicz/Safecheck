@@ -565,7 +565,7 @@ class App(tk.Tk):
     def work(self, url):
         try:
             checks, facts, method = sc.analyze_input(url)
-            path = sc.save_report(url, method, checks, facts, os.path.join(sc.HERE, "reports"))
+            path = sc.save_report(url, method, checks, facts, settings.reports_dir())
             self.q.put(("done", (url, checks, facts, method, path)))
         except Exception as e:  # noqa: BLE001
             self.q.put(("error", f"{type(e).__name__}: {e}"))
@@ -628,6 +628,7 @@ class App(tk.Tk):
         if sc.can_download(checks, facts):  # análise por link, hash conhecido e nenhuma falha
             self.dl_label = "Baixar arquivo verificado" if level == "ok" else "Baixar mesmo com avisos"
             actions.append((self.dl_label, self.start_download, "success" if level == "ok" else "warn"))
+        actions.append(("Pasta dos relatórios", lambda b: self.open_reports_folder(), False))
         actions.append(("Abrir relatório completo no navegador", lambda b: self.open_report(), True))
         self.show_verdict(level, self.verdict_title, text, chips, actions)
         for r in self.rows.values():  # abre sozinhos os testes que merecem atenção
@@ -888,6 +889,22 @@ class App(tk.Tk):
             self.status.set("Não foi possível baixar o arquivo.")
             self.verdict_note(f"Não foi possível baixar: {data}", BAD)
             self.download_finished("Tentar baixar de novo")
+
+    def open_path(self, caminho):
+        """Abre um arquivo ou pasta com o programa padrão do sistema."""
+        try:
+            if sys.platform == "win32":
+                os.startfile(caminho)
+            else:
+                subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", caminho])
+        except OSError:
+            pass
+
+    def open_reports_folder(self):
+        """Abre a pasta onde os relatórios são salvos (e a cria se ainda não existir)."""
+        pasta = settings.reports_dir()
+        os.makedirs(pasta, exist_ok=True)
+        self.open_path(pasta)
 
     def open_report(self):
         """Abre o relatório HTML completo no navegador padrão."""

@@ -21,6 +21,19 @@ def config_path():
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "safecheck", "config.json")
 
 
+def data_dir():
+    """Pasta de dados do usuário, fora do repositório (assim, apagar ou atualizar o código não leva os relatórios junto)."""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "safecheck")
+
+
+def reports_dir():
+    return os.path.join(data_dir(), "reports")
+
+
 # ---------------------------------------------------------------- DPAPI (Windows)
 def _blob(data):
     import ctypes

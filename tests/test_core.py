@@ -191,7 +191,8 @@ class DefenderTest(unittest.TestCase):
 class ChaveTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        env = {"APPDATA": self.tmp, "XDG_CONFIG_HOME": self.tmp, "HOME": self.tmp, "USERPROFILE": self.tmp}
+        env = {"APPDATA": self.tmp, "LOCALAPPDATA": self.tmp, "XDG_CONFIG_HOME": self.tmp, "XDG_DATA_HOME": self.tmp,
+               "HOME": self.tmp, "USERPROFILE": self.tmp}
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -217,6 +218,13 @@ class ChaveTest(unittest.TestCase):
         os.environ["VT_API_KEY"] = "c" * 64
         self.assertEqual(settings.get_vt_key(), "c" * 64)
         self.assertEqual(settings.vt_key_source(), "env")
+
+    def test_relatorios_ficam_na_pasta_de_dados_fora_do_repositorio(self):
+        pasta = settings.reports_dir()
+        self.assertTrue(pasta.startswith(self.tmp))
+        self.assertTrue(pasta.endswith(os.path.join("safecheck", "reports")))
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.assertFalse(os.path.abspath(pasta).startswith(raiz))
 
     def test_formato_da_chave(self):
         self.assertTrue(settings.valid_key_format("a" * 64))
