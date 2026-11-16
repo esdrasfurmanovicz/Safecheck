@@ -689,13 +689,24 @@ def second_opinions(path, kind, size):
 YARA_RULES, YARA_MANIFEST = "/opt/yara/rules.yarc", "/opt/yara/manifest.txt"
 
 
-def yara_scan(path, ext):
-    """Regras YARA da comunidade (embutidas na imagem), focadas em PDF, documentos e executáveis escondidos."""
+def mp4_region(offset):
+    """Em que caixa de topo do MP4 cai este deslocamento (mdat = vídeo e áudio, moov = índice)."""
+    pos = 0
+    for name, size in facts.get("boxes", []):
+        if pos <= offset < pos + size:
+            return name
+        pos += size
+    return "depois do fim das caixas (dados anexados)"
+
+
+def yara_scan(path, ext, kind=None):
+    """Regras YARA da comunidade (embutidas na imagem), focadas em PDF, documentos e executáveis escondidos.
+    Mostra o deslocamento onde cada regra casou e, em MP4, a região do arquivo."""
     if not shutil.which("yara") or not os.path.exists(YARA_RULES):
         add("yara", "Regras YARA da comunidade", "SKIP", "sem regras YARA nesta imagem (o download das regras falhou na construção)")
         return
     base = os.path.basename(path)
-    cmd = ["yara", "-C", "-f", "-m", "-d", f"filename={base}", "-d", f"filepath={path}", "-d", f"extension={ext}",
+    cmd = ["yara", "-C", "-f", "-m", "-s", "--max-strings-per-rule=20", "-d", f"filename={base}", "-d", f"filepath={path}", "-d", f"extension={ext}",
            "-d", "filetype=", "-d", "owner=", YARA_RULES, path]
     try:
         r = run(cmd, 1500)
@@ -711,28 +722,58 @@ def yara_scan(path, ext):
     if r.returncode != 0:
         add("yara", "Regras YARA da comunidade", "WARN", "erro no scan: " + ((r.stderr or r.stdout).strip().splitlines() or ["?"])[0][:140])
         return
-    hits, ignored = [], 0
+    hits, ignored, cur = [], 0, None  # cada hit: [nome, pontuação, descrição, deslocamentos onde casou]
     for l in r.stdout.splitlines():
         l = l.rstrip()
-        if not l.endswith(path):
-            continue
-        head = l[: -len(path)].rstrip()
-        name = head.split(" ", 1)[0]
-        meta = head[len(name):].strip().lstrip("[").rstrip("]")
-        kv = {k.lower(): v.strip('"') for k, v in re.findall(r'(\w+)\s*=\s*("[^"]*"|[^,\]]+)', meta)}
-        score = int(kv.get("score") or kv.get("impact") or 0)
-        # convenção do signature-base: hide=true é regra auxiliar de baixo sinal; pontuação < 50 é só informativa
-        if kv.get("hide", "").lower() == "true" or (("score" in kv or "impact" in kv) and score < 50):
-            ignored += 1
-            continue
-        hits.append((name, score, kv.get("description") or kv.get("desc") or ""))
+        if l.endswith(path):  # linha de cabeçalho da regra que casou
+            head = l[: -len(path)].rstrip()
+            name = head.split(" ", 1)[0]
+            meta = head[len(name):].strip().lstrip("[").rstrip("]")
+            kv = {k.lower(): v.strip('"') for k, v in re.findall(r'(\w+)\s*=\s*("[^"]*"|[^,\]]+)', meta)}
+            score = int(kv.get("score") or kv.get("impact") or 0)
+            # convenção do signature-base: hide=true é regra auxiliar de baixo sinal; pontuação < 50 é só informativa
+            if kv.get("hide", "").lower() == "true" or (("score" in kv or "impact" in kv) and score < 50):
+                ignored += 1
+                cur = None
+                continue
+            cur = [name, score, kv.get("description") or kv.get("desc") or "", []]
+            hits.append(cur)
+        elif cur is not None:  # linhas '0x1a2b:$a: bytes' (-s): onde a regra casou
+            m = re.match(r"^0x([0-9a-fA-F]+):", l)
+            if m and len(cur[3]) < 3:
+                cur[3].append(int(m.group(1), 16))
     facts["yara_ignored"] = ignored
+
+    def onde(h):
+        def regiao(o):
+            r_ = mp4_region(o)
+            return f" (dentro de '{r_}')" if len(r_) == 4 else f" ({r_})"  # nomes de caixa têm 4 letras
+        return ", ".join(f"0x{o:x}" + (regiao(o) if kind == "mp4" else "") for o in h[3])
+
+    coincid = []
+    if kind == "mp4":  # regra de documentos, sem pontuação, dentro dos dados do vídeo (mdat) ou do índice (moov): quase sempre acaso
+        mantidos = []
+        for h in hits:
+            if h[1] == 0 and h[3] and all(mp4_region(o) in ("mdat", "moov") for o in h[3]):
+                coincid.append(h)
+            else:
+                mantidos.append(h)
+        hits = mantidos
+    if hits or coincid:
+        facts.setdefault("details", []).append(["YARA: onde a regra casou", "; ".join(f"{h[0]} em {onde(h)}" for h in hits + coincid if h[3])[:300] or "(sem deslocamento)"])
     if not hits:
-        add("yara", "Regras YARA da comunidade", "PASS",
-            f"nenhuma regra relevante casou ({n_files} arquivos de regra, de {built})" + (f"; {ignored} regra(s) de baixo sinal ignorada(s)" if ignored else ""))
+        extra = (f"; {ignored} regra(s) de baixo sinal ignorada(s)" if ignored else "")
+        if coincid:
+            nomes = ", ".join(h[0] for h in coincid[:3])
+            add("yara", "Regras YARA da comunidade", "INFO",
+                f"{nomes} casou em {onde(coincid[0])}, nos dados do vídeo ou no índice, mas é uma regra de documentos (shellcode em Office/PDF) "
+                f"com padrão de poucos bytes: coincidência provável em vídeo, só informativo{extra}")
+        else:
+            add("yara", "Regras YARA da comunidade", "PASS",
+                f"nenhuma regra relevante casou ({n_files} arquivos de regra, de {built})" + extra)
         return
-    status = "FAIL" if any(s >= 80 for _, s, _ in hits) else "WARN"
-    txt = "; ".join(f"{n}" + (f" ({d[:70]})" if d else "") for n, _, d in hits[:4]) + (f" (+{len(hits) - 4})" if len(hits) > 4 else "")
+    status = "FAIL" if any(h[1] >= 80 for h in hits) else "WARN"
+    txt = "; ".join(f"{h[0]}" + (f" ({h[2][:70]})" if h[2] else "") + (f" em {onde(h)}" if h[3] else "") for h in hits[:4]) + (f" (+{len(hits) - 4})" if len(hits) > 4 else "")
     add("yara", "Regras YARA da comunidade", status, "regras que casaram: " + txt)
 
 
@@ -810,7 +851,7 @@ def main():
         if info.get("kind"):
             validators(path, info["kind"])
             second_opinions(path, info["kind"], size)
-        yara_scan(path, facts.get("ext", ""))
+        yara_scan(path, facts.get("ext", ""), info.get("kind"))
         av_scan(path)
     except Exception as e:  # noqa: BLE001
         add("download", "Obter o arquivo no sandbox", "FAIL", f"{type(e).__name__}: {e}")
